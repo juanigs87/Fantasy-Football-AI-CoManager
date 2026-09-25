@@ -117,6 +117,37 @@ export class ESPNApiService {
     return response.data.players;
   }
 
+  // Free agents and waiver-wire players, most-owned first. ESPN returns a
+  // small unordered slice unless the filter sets a sort and limit.
+  async getFreeAgents(leagueId: string, options: { slotIds?: number[]; limit?: number } = {}, year: number = getCurrentNFLSeasonYear()) {
+    const filter: any = {
+      players: {
+        filterStatus: { value: ['FREEAGENT', 'WAIVERS'] },
+        limit: options.limit ?? 50,
+        sortPercOwned: { sortPriority: 1, sortAsc: false }
+      }
+    };
+    if (options.slotIds) filter.players.filterSlotIds = { value: options.slotIds };
+
+    const response = await this.axios.get(
+      `/seasons/${year}/segments/0/leagues/${leagueId}`,
+      {
+        params: { view: 'kona_player_info' },
+        headers: { 'X-Fantasy-Filter': JSON.stringify(filter) }
+      }
+    );
+    return (response.data.players || []).filter((p: any) => p.status === 'FREEAGENT' || p.status === 'WAIVERS');
+  }
+
+  // Every team with its roster in one request
+  async getAllRosters(leagueId: string, year: number = getCurrentNFLSeasonYear()) {
+    const response = await this.axios.get(
+      `/seasons/${year}/segments/0/leagues/${leagueId}`,
+      { params: { view: ['mTeam', 'mRoster'] }, paramsSerializer: { indexes: null } }
+    );
+    return response.data.teams;
+  }
+
   async getMatchups(leagueId: string, week: number, year: number = getCurrentNFLSeasonYear()) {
     const response = await this.axios.get(
       `/seasons/${year}/segments/0/leagues/${leagueId}`,

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './redirectStdout.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -11,13 +12,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 
 // Import from shared library
-import {
-  espnApi,
-  llmConfig,
-  getRosterTool,
-  getMyRoster,
-  executeAIWorkflow
-} from '@fantasy-ai/shared';
+import { espnApi, getMyRoster, getFreeAgents, getLeagueRosters } from '@fantasy-ai/shared';
 
 // Load environment variables
 dotenv.config();
@@ -36,9 +31,6 @@ if (ESPN_S2 && ESPN_SWID) {
   console.error('Warning: ESPN cookies not found in environment');
 }
 
-// Initialize LLM configuration
-await llmConfig.initializeLLM();
-
 // Web search function using DuckDuckGo Instant Answer API
 async function webSearch(query: string, maxResults: number = 5): Promise<string> {
   try {
@@ -53,7 +45,7 @@ async function webSearch(query: string, maxResults: number = 5): Promise<string>
     });
     
     const data = response.data;
-    let results = [];
+    let results: string[] = [];
     
     // Check for instant answer
     if (data.Answer) {
@@ -105,7 +97,7 @@ async function alternativeSearch(query: string): Promise<string> {
       });
       
       const $ = cheerio.load(response.data);
-      const results = [];
+      const results: string[] = [];
       
       // Extract search results
       $('.search-results article').slice(0, 3).each((index, element) => {
@@ -164,6 +156,29 @@ const tools: Tool[] = [
     }
   },
   {
+    name: 'free_agents',
+    description: 'List free agents and waiver-wire players available in the league right now, most-owned first. Players marked availability "WAIVERS" need a claim; "FREEAGENT" can be added immediately.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        leagueId: { type: 'string', description: 'ESPN league ID (defaults to LEAGUE_1_ID)' },
+        position: { type: 'string', enum: ['QB', 'RB', 'WR', 'TE', 'FLEX', 'D/ST', 'K'], description: 'Only return this position' },
+        limit: { type: 'number', description: 'Maximum players to return (default: 50)', default: 50 }
+      }
+    }
+  },
+  {
+    name: 'league_rosters',
+    description: "Get every team's current roster in the league (team name, owner, record, and each player's lineup slot). Pass teamId for a single team. Use for trade targets and scouting opponents.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        leagueId: { type: 'string', description: 'ESPN league ID (defaults to LEAGUE_1_ID)' },
+        teamId: { type: 'string', description: 'Only return this team' }
+      }
+    }
+  },
+  {
     name: 'web_search',
     description: 'Search the internet for current information about players, injuries, weather, news, etc.',
     inputSchema: {
@@ -200,6 +215,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'my_roster':
         result = await getMyRoster(args as any);
         break;
+      case 'free_agents': {
+        const { leagueId = process.env.LEAGUE_1_ID, position, limit } = (args || {}) as { leagueId?: string; position?: string; limit?: number };
+        result = await getFreeAgents({ leagueId: leagueId as string, position, limit });
+        break;
+      }
+      case 'league_rosters': {
+        const { leagueId = process.env.LEAGUE_1_ID, teamId } = (args || {}) as { leagueId?: string; teamId?: string };
+        result = await getLeagueRosters({ leagueId: leagueId as string, teamId });
+        break;
+      }
       case 'web_search':
         const { query, maxResults = 5 } = args as { query: string; maxResults?: number };
         result = await webSearch(query, maxResults);

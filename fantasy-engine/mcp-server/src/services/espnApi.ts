@@ -330,53 +330,63 @@ export class ESPNApiService {
     return players.map((p: any) => this.processPlayerData(p));
   }
 
-  async getAvailablePlayers(leagueId: string): Promise<Player[]> {
+  // ESPN lineup slot IDs used by the player filter to narrow by position.
+  private static readonly POSITION_FILTER_SLOTS: { [position: string]: number[] } = {
+    QB: [0], RB: [2], WR: [4], TE: [6], FLEX: [23], 'D/ST': [16], DST: [16], K: [17]
+  };
+
+  // Free agents and waiver-wire players, most-owned first. ESPN returns a
+  // small unordered slice unless the filter sets a sort and limit, so both
+  // are always sent. Pass `position` (QB/RB/WR/TE/FLEX/D/ST/K) to narrow.
+  async getAvailablePlayers(leagueId: string, options: { position?: string; limit?: number } = {}): Promise<Player[]> {
+    const limit = options.limit ?? 150;
+    const position = options.position?.toUpperCase();
+    const slotIds = position ? ESPNApiService.POSITION_FILTER_SLOTS[position] : undefined;
+    if (position && !slotIds) {
+      throw new Error(`Unknown position "${options.position}". Use one of: ${Object.keys(ESPNApiService.POSITION_FILTER_SLOTS).join(', ')}`);
+    }
+
+    const filter: any = {
+      players: {
+        filterStatus: { value: ['FREEAGENT', 'WAIVERS'] },
+        limit,
+        sortPercOwned: { sortPriority: 1, sortAsc: false }
+      }
+    };
+    if (slotIds) filter.players.filterSlotIds = { value: slotIds };
+
+    const isAvailable = (entry: any) => entry.status === 'FREEAGENT' || entry.status === 'WAIVERS';
+
     try {
-      const currentWeek = this.getCurrentWeek();
       const response = await this.axios.get(
         `/seasons/${this.year}/segments/0/leagues/${leagueId}`,
-        { 
-          params: { 
-            view: 'kona_player_info',
-            scoringPeriodId: currentWeek // Request current week data
-          },
-          headers: {
-            'X-Fantasy-Filter': JSON.stringify({
-              players: {
-                filterStatus: {
-                  value: ['FREEAGENT', 'WAIVERS']
-                }
-              }
-            })
-          }
+        {
+          params: { view: 'kona_player_info', scoringPeriodId: this.getCurrentWeek() },
+          headers: { 'X-Fantasy-Filter': JSON.stringify(filter) }
         }
       );
-      
+
       const players = response.data.players || [];
-      return players
-        .map((p: any) => this.processPlayerData(p))
-        .filter((p: Player) => (p.percentOwned || 0) < 50); // Focus on widely available players
+      // ESPN honours filterStatus today, but check each entry anyway so a
+      // silently ignored filter can never surface rostered players.
+      return players.filter(isAvailable).map((p: any) => this.processPlayerData(p));
     } catch (error: any) {
       if (error.response?.status === 400) {
-        // Try alternative approach without the filter for troubleshooting
-        console.warn('⚠️ Fantasy filter failed, trying without filter...');
+        // Filter rejected - fetch the unfiltered pool and keep only players
+        // ESPN marks as unrostered, sorted the same way.
+        console.warn('⚠️ Fantasy filter failed, falling back to unfiltered player pool...');
         try {
-          const currentWeek = this.getCurrentWeek();
           const response = await this.axios.get(
             `/seasons/${this.year}/segments/0/leagues/${leagueId}`,
-            { 
-              params: { 
-                view: 'kona_player_info',
-                scoringPeriodId: currentWeek // Request current week data
-              }
-            }
+            { params: { view: 'kona_player_info', scoringPeriodId: this.getCurrentWeek() } }
           );
-          
-          const players = response.data.players || [];
-          return players
+          return (response.data.players || [])
+            .filter(isAvailable)
             .map((p: any) => this.processPlayerData(p))
-            .filter((p: Player) => (p.percentOwned || 0) < 95) // Only exclude universally owned players
-            .slice(0, 200); // Limit to reasonable number of players
+            .filter((p: Player) => !position || p.position === position || (position === 'DST' && p.position === 'D/ST')
+              || (position === 'FLEX' && ['RB', 'WR', 'TE'].includes(p.position)))
+            .sort((a: Player, b: Player) => (b.percentOwned || 0) - (a.percentOwned || 0))
+            .slice(0, limit);
         } catch (fallbackError: any) {
           throw new Error(`ESPN Available Players API failed: ${error.message} (Status: ${error.response?.status})`);
         }
@@ -469,7 +479,9 @@ export class ESPNApiService {
       projectedPoints: weeklyProjection,
       injuryStatus: player.injuryStatus || undefined,
       percentStarted: player.ownership?.percentStarted || 0,
-      percentOwned: player.ownership?.percentOwned || 0
+      percentOwned: player.ownership?.percentOwned || 0,
+      // Only player-pool entries (free agent queries) carry a status
+      ...(playerData.status === 'FREEAGENT' || playerData.status === 'WAIVERS' ? { availability: playerData.status } : {})
     };
   }
 

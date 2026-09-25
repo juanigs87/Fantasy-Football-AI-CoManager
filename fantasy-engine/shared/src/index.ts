@@ -12,6 +12,7 @@ export { llmConfig } from './config/llm-config.js';
 
 // Core Tools - Minimal set for testing
 export { getMyRoster } from './tools/simple-enhanced.js';
+export { getFreeAgents, getLeagueRosters } from './tools/leagueData.js';
 export { executeAIWorkflow } from './tools/aiWorkflowOrchestrator.js';
 export { analyzeCrossLeagueStrategy, coordinateWaiverClaims } from './tools/crossLeague.js';
 export { getCostSummary } from './tools/cost.js';

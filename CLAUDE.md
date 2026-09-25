@@ -113,7 +113,9 @@ GET  /api/auth/debug-login
 GET  /api/espn/league/:leagueId                         League metadata
 GET  /api/espn/league/:leagueId/teams
 GET  /api/espn/league/:leagueId/team/:teamId/roster     Roster with players
-GET  /api/espn/league/:leagueId/players                 Available players
+GET  /api/espn/league/:leagueId/players                 Raw player pool
+GET  /api/espn/league/:leagueId/free-agents             Free agents + waivers (?position=RB&limit=50)
+GET  /api/espn/league/:leagueId/rosters                 Every team with its roster
 GET  /api/espn/league/:leagueId/matchups/:week
 GET  /api/espn/league/:leagueId/transactions
 POST /api/test/test-cookies | test-public-league | test-endpoint

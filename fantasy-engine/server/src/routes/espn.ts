@@ -105,6 +105,36 @@ router.get('/league/:leagueId/players', async (req: Request, res: Response) => {
   }
 });
 
+// ESPN lineup slot IDs for the free agent position filter
+const POSITION_SLOTS: { [position: string]: number[] } = {
+  QB: [0], RB: [2], WR: [4], TE: [6], FLEX: [23], 'D/ST': [16], DST: [16], K: [17]
+};
+
+router.get('/league/:leagueId/free-agents', async (req: Request, res: Response) => {
+  try {
+    const { leagueId } = req.params;
+    const position = typeof req.query.position === 'string' ? req.query.position.toUpperCase() : undefined;
+    if (position && !POSITION_SLOTS[position]) {
+      return res.status(400).json({ error: `Unknown position "${position}". Use one of: ${Object.keys(POSITION_SLOTS).join(', ')}` });
+    }
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+    const data = await espnApi.getFreeAgents(leagueId, { slotIds: position ? POSITION_SLOTS[position] : undefined, limit });
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/league/:leagueId/rosters', async (req: Request, res: Response) => {
+  try {
+    const { leagueId } = req.params;
+    const data = await espnApi.getAllRosters(leagueId);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/league/:leagueId/matchups/:week', async (req: Request, res: Response) => {
   try {
     const { leagueId, week } = req.params;

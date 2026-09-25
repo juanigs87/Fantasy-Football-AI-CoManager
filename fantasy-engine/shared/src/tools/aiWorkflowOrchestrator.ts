@@ -61,6 +61,17 @@ export async function executeAIWorkflow(args: {
             leagueId: league.leagueId, 
             teamId: league.teamId 
           });
+
+          // Other teams' rosters, for trade targets and opponent context.
+          // Non-fatal: the lineup/waiver review still works without them.
+          let otherTeams: any[] = [];
+          try {
+            const allRosters = await espnApi.getAllRosters(league.leagueId);
+            otherTeams = allRosters.filter(t => t.teamId !== parseInt(league.teamId));
+            console.log(`👥 League rosters fetched: ${otherTeams.length} other teams`);
+          } catch (rostersError: any) {
+            console.warn(`⚠️ Could not fetch other teams' rosters: ${rostersError.message}`);
+          }
           
           // VALIDATION: Fix weekly projections and IR classification before sending to LLM
           const validateAndFixPlayer = (player: any) => {
@@ -165,6 +176,7 @@ export async function executeAIWorkflow(args: {
             bench: finalBench,
             availablePlayers: rosterWithWaivers.availablePlayers || {},
             injuredReserve: fixedIRPlayers,
+            otherTeams,
             roster: roster
           };
         } catch (error: any) {
@@ -407,9 +419,15 @@ ${league.availablePlayers ? Object.entries(league.availablePlayers).map(([positi
       ownedDesc = `${ownedInWords}% owned`;
     }
     
-    return `• ${p.fullName} - ${projDesc} | ${ownedDesc}`;
+    const waiverNote = p.availability === 'WAIVERS' ? ' | On waivers (claim required)' : '';
+    return `• ${p.fullName} - ${projDesc} | ${ownedDesc}${waiverNote}`;
   }).join('\n') : 'None available'}`
 ).join('\n') : 'Waiver wire data not available'}
+
+OTHER TEAMS' ROSTERS (players NOT available - use for trade ideas, never suggest picking these up):
+${league.otherTeams && league.otherTeams.length > 0 ? league.otherTeams.map((t: any) =>
+  `${t.teamName}: ${t.players.map((p: any) => `${p.fullName} (${p.position}${p.injuryStatus && p.injuryStatus !== 'ACTIVE' ? ', ' + p.injuryStatus : ''})`).join(', ')}`
+).join('\n') : 'Other rosters not available'}
 `).join('\n')}
 ${expertDataSection}
 

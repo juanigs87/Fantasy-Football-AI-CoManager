@@ -16,6 +16,7 @@ export interface Player {
   injuryStatus?: string;
   percentStarted?: number;
   percentOwned?: number;
+  availability?: 'FREEAGENT' | 'WAIVERS';
 }
 
 export interface TeamRoster {
@@ -24,6 +25,15 @@ export interface TeamRoster {
   starters: Player[];
   bench: Player[];
   injuredReserve?: Player[];
+}
+
+export interface LeagueTeamRoster {
+  teamId: number;
+  teamName: string;
+  abbrev?: string;
+  owner?: string;
+  record?: { wins: number; losses: number; ties: number };
+  players: (Player & { lineupSlot: string })[];
 }
 
 export interface LeagueInfo {

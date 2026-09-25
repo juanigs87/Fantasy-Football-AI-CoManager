@@ -16,6 +16,7 @@ export interface Player {
   injuryStatus?: string;
   percentStarted?: number;
   percentOwned?: number;
+  availability?: 'FREEAGENT' | 'WAIVERS';
 }
 
 export interface TeamRoster {
