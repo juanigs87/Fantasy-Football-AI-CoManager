@@ -12,7 +12,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 
 // Import from shared library
-import { espnApi, getMyRoster, getFreeAgents, getLeagueRosters } from '@fantasy-ai/shared';
+import { espnApi, getMyRoster, getFreeAgents, getLeagueRosters, getLiveScores } from '@fantasy-ai/shared';
 
 // Load environment variables
 dotenv.config();
@@ -179,6 +179,18 @@ const tools: Tool[] = [
     }
   },
   {
+    name: 'live_scores',
+    description: "Live fantasy scores for this week's matchup: each team's live points, ESPN's projected final and win probability, and every player's points so far with their NFL game state (pre = not started, in = playing, post = final, bye). Defaults to your matchup; pass all=true for the whole league.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        leagueId: { type: 'string', description: 'ESPN league ID (defaults to LEAGUE_1_ID)' },
+        teamId: { type: 'string', description: 'Team whose matchup to show (defaults to LEAGUE_1_TEAM_ID)' },
+        all: { type: 'boolean', description: 'Return every matchup in the league', default: false }
+      }
+    }
+  },
+  {
     name: 'web_search',
     description: 'Search the internet for current information about players, injuries, weather, news, etc.',
     inputSchema: {
@@ -223,6 +235,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'league_rosters': {
         const { leagueId = process.env.LEAGUE_1_ID, teamId } = (args || {}) as { leagueId?: string; teamId?: string };
         result = await getLeagueRosters({ leagueId: leagueId as string, teamId });
+        break;
+      }
+      case 'live_scores': {
+        const { leagueId = process.env.LEAGUE_1_ID, teamId = process.env.LEAGUE_1_TEAM_ID, all } = (args || {}) as { leagueId?: string; teamId?: string; all?: boolean };
+        result = await getLiveScores({ leagueId: leagueId as string, teamId, all });
         break;
       }
       case 'web_search':

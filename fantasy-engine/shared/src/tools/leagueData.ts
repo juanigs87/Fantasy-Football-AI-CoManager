@@ -28,3 +28,18 @@ export async function getLeagueRosters(args: { leagueId: string; teamId?: string
   }
   return { leagueId, teams };
 }
+
+// Live scores for this week. Defaults to the matchup containing `teamId`;
+// pass all=true for every matchup in the league.
+export async function getLiveScores(args: { leagueId: string; teamId?: string; all?: boolean }) {
+  const { leagueId, teamId, all } = args;
+  if (!leagueId) throw new Error('League ID is required');
+
+  const matchups = await espnApi.getLiveScoreboard(leagueId);
+  if (all || !teamId) return { leagueId, matchups };
+
+  const id = parseInt(teamId);
+  const mine = matchups.find(m => m.home.teamId === id || m.away?.teamId === id);
+  if (!mine) throw new Error(`No matchup this week for team ${teamId} in league ${leagueId} (bye or eliminated)`);
+  return { leagueId, matchups: [mine] };
+}

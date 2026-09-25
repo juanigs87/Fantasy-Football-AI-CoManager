@@ -148,6 +148,18 @@ export class ESPNApiService {
     return response.data.teams;
   }
 
+  // Live scoring for the current matchup period (raw ESPN schedule entries;
+  // use totalPointsLive / totalProjectedPointsLive, totalPoints stays 0
+  // until the week is finalized)
+  async getLiveScoreboard(leagueId: string, year: number = getCurrentNFLSeasonYear()) {
+    const response = await this.axios.get(
+      `/seasons/${year}/segments/0/leagues/${leagueId}`,
+      { params: { view: ['mMatchupScore', 'mLiveScoring', 'mScoreboard'] }, paramsSerializer: { indexes: null } }
+    );
+    const period = response.data.status?.currentMatchupPeriod;
+    return (response.data.schedule || []).filter((m: any) => m.matchupPeriodId === period);
+  }
+
   async getMatchups(leagueId: string, week: number, year: number = getCurrentNFLSeasonYear()) {
     const response = await this.axios.get(
       `/seasons/${year}/segments/0/leagues/${leagueId}`,

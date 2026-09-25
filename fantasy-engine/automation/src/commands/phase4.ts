@@ -1,6 +1,7 @@
 import { 
   executeAIWorkflow,
   getMyRoster,
+  getLiveScores,
   espnApi,
   fantasyProsApi
 } from '@fantasy-ai/shared';
@@ -670,6 +671,8 @@ async function runRealtimeAnalysis(config: any, week: number): Promise<any> {
         teamId: league.teamId 
       });
       
+      const liveScore = await buildLiveScoreSection(league.id, league.teamId);
+
       // Lightweight real-time analysis
       const analysis = await executeAIWorkflow({
         task: 'realtime_monitoring',
@@ -691,6 +694,11 @@ You are monitoring my roster for breaking news that requires immediate action. U
 
 ⚡ IMMEDIATE ACTION NEEDED:
 Search for any urgent developments that could impact my lineup in the next few hours. Focus ONLY on time-sensitive decisions that can't wait.
+
+${liveScore}
+
+📊 MATCHUP STATUS:
+Using the live score above, tell me where the matchup stands: am I ahead or behind, how many starters each side still has to play, and whether any not-started starter should be swapped out (injury, inactive, bye) before their game locks.
 
 This is not a comprehensive analysis - just emergency monitoring for urgent roster moves needed RIGHT NOW.`
       });
@@ -717,6 +725,41 @@ This is not a comprehensive analysis - just emergency monitoring for urgent rost
   console.log(`✅ Realtime monitoring complete for ${results.length} leagues`);
   
   return { leagues: results, mode: 'realtime' };
+}
+
+// Digits spelled out as words: the prompt is logged, and GitHub masks any
+// substring matching a secret (team/league IDs), which would garble scores.
+const DIGIT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const spell = (n: number, decimals = 1) => n.toFixed(decimals).replace(/\d/g, d => DIGIT_WORDS[parseInt(d)]);
+
+// Plain-text live score summary of my matchup for the realtime prompt
+async function buildLiveScoreSection(leagueId: string, teamId: string): Promise<string> {
+  try {
+    const { matchups } = await getLiveScores({ leagueId, teamId });
+    const matchup = matchups[0];
+    const mine = matchup.home.teamId === parseInt(teamId) ? matchup.home : matchup.away;
+    const theirs = matchup.home.teamId === parseInt(teamId) ? matchup.away : matchup.home;
+    if (!mine || !theirs) return 'LIVE SCORE: no opponent this week';
+
+    const describe = (label: string, team: typeof mine) => {
+      const players = team.starters.map(p =>
+        `  • ${p.fullName} (${p.lineupSlot}) - ${spell(p.points)} pts, proj ${spell(p.projectedPoints)} | ${
+          p.gameState === 'pre' ? 'not started' : p.gameState === 'in' ? `PLAYING ${p.gameDetail || ''}`.trim() : p.gameState === 'post' ? 'final' : p.gameState
+        }${p.injuryStatus ? ` | ${p.injuryStatus}` : ''}`
+      ).join('\n');
+      const winPct = team.winProbability !== undefined ? ` | win probability ${spell(team.winProbability * 100)}%` : '';
+      return `${label}: ${team.teamName} - ${spell(team.livePoints)} live, projected ${spell(team.projectedPoints)}${winPct}
+  Starters yet to play: ${spell(team.playersYetToPlay, 0)}, playing now: ${spell(team.playersInProgress, 0)}
+${players}`;
+    };
+
+    return `LIVE SCORE (this week's matchup):
+${describe('ME', mine)}
+${describe('OPPONENT', theirs)}`;
+  } catch (error: any) {
+    console.warn(`⚠️ Live score unavailable: ${error.message}`);
+    return 'LIVE SCORE: unavailable';
+  }
 }
 
 /**

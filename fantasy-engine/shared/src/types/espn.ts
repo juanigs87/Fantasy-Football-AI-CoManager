@@ -36,6 +36,40 @@ export interface LeagueTeamRoster {
   players: (Player & { lineupSlot: string })[];
 }
 
+export type NFLGameState = 'pre' | 'in' | 'post' | 'bye' | 'unknown';
+
+export interface LivePlayerScore {
+  id: string;
+  fullName: string;
+  position: string;
+  team: string;
+  lineupSlot: string;
+  points: number;
+  projectedPoints: number;
+  injuryStatus?: string;
+  gameState: NFLGameState;
+  gameDetail?: string;
+}
+
+export interface LiveTeamScore {
+  teamId: number;
+  teamName: string;
+  livePoints: number;
+  projectedPoints: number;
+  winProbability?: number;
+  playersYetToPlay: number;
+  playersInProgress: number;
+  starters: LivePlayerScore[];
+  bench: LivePlayerScore[];
+}
+
+export interface LiveMatchup {
+  matchupPeriodId: number;
+  scoringPeriodId: number;
+  home: LiveTeamScore;
+  away?: LiveTeamScore;
+}
+
 export interface LeagueInfo {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { ESPNCookies, LeagueInfo, TeamRoster, Player, LeagueTeamRoster } from '../types/espn.js';
+import { ESPNCookies, LeagueInfo, TeamRoster, Player, LeagueTeamRoster, LiveMatchup, LiveTeamScore, LivePlayerScore, NFLGameState } from '../types/espn.js';
 import { 
   isStartingPosition, 
   isBenchPosition, 
@@ -572,6 +572,91 @@ export class ESPNApiService {
       }
       throw error;
     }
+  }
+
+  // NFL game state per pro team ID, from ESPN's public scoreboard (same team
+  // IDs as proTeamId). Teams missing from this week's slate are on bye.
+  private async getNFLGameStates(): Promise<Map<number, { state: NFLGameState; detail: string }>> {
+    const response = await axios.get('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard', { timeout: 10000 });
+    const states = new Map<number, { state: NFLGameState; detail: string }>();
+    for (const event of response.data.events || []) {
+      const type = event.status?.type || {};
+      const state: NFLGameState = ['pre', 'in', 'post'].includes(type.state) ? type.state : 'unknown';
+      for (const competitor of event.competitions?.[0]?.competitors || []) {
+        states.set(parseInt(competitor.team.id), { state, detail: type.shortDetail || type.detail || '' });
+      }
+    }
+    return states;
+  }
+
+  // Live scores for the current matchup period: team totals, ESPN's live
+  // projection and win probability, and every rostered player's points so
+  // far. `totalPoints` stays 0 until ESPN finalizes the week, so the live
+  // fields are what matter here.
+  async getLiveScoreboard(leagueId: string): Promise<LiveMatchup[]> {
+    const response = await this.axios.get(
+      `/seasons/${this.year}/segments/0/leagues/${leagueId}`,
+      { params: { view: ['mMatchupScore', 'mLiveScoring', 'mScoreboard', 'mTeam'] }, paramsSerializer: { indexes: null } }
+    );
+    if (typeof response.data === 'string' && response.data.trim().startsWith('<')) {
+      throw new Error('ESPN API returned HTML instead of JSON - authentication required');
+    }
+
+    const data = response.data;
+    const matchupPeriod = data.status?.currentMatchupPeriod;
+    const scoringPeriod = data.scoringPeriodId;
+    const teamNames = new Map<number, string>((data.teams || []).map((t: any) => [t.id, t.name || `Team ${t.id}`]));
+
+    // Game state is a nice-to-have; scores are still useful without it
+    let gameStates = new Map<number, { state: NFLGameState; detail: string }>();
+    try {
+      gameStates = await this.getNFLGameStates();
+    } catch (error: any) {
+      console.warn(`⚠️ NFL game states unavailable: ${error.message}`);
+    }
+
+    const toTeam = (side: any): LiveTeamScore => {
+      const players: LivePlayerScore[] = (side.rosterForCurrentScoringPeriod?.entries || []).map((entry: any) => {
+        const pool = entry.playerPoolEntry || {};
+        const player = pool.player || {};
+        const projection = (player.stats || []).find((st: any) => st.statSourceId === 1 && st.scoringPeriodId === scoringPeriod);
+        const slotId = entry.lineupSlotId;
+        const game = gameStates.get(player.proTeamId);
+        return {
+          id: player.id?.toString() || '',
+          fullName: player.fullName || '',
+          position: player.defaultPositionId !== undefined ? this.getPositionName(player.defaultPositionId) : 'Unknown',
+          team: player.proTeamId ? this.getTeamAbbreviation(player.proTeamId) : 'FA',
+          lineupSlot: isIRPosition(slotId) ? 'IR' : isBenchPosition(slotId) ? 'BENCH' : (LINEUP_SLOT_NAMES[slotId] || `SLOT_${slotId}`),
+          points: Math.round((pool.appliedStatTotal || 0) * 100) / 100,
+          projectedPoints: Math.round((projection?.appliedTotal || 0) * 100) / 100,
+          injuryStatus: player.injuryStatus && player.injuryStatus !== 'ACTIVE' ? player.injuryStatus : undefined,
+          gameState: game ? game.state : (gameStates.size > 0 ? 'bye' : 'unknown'),
+          gameDetail: game?.detail
+        };
+      });
+      const starters = players.filter(p => p.lineupSlot !== 'BENCH' && p.lineupSlot !== 'IR');
+      return {
+        teamId: side.teamId,
+        teamName: teamNames.get(side.teamId) || `Team ${side.teamId}`,
+        livePoints: Math.round((side.totalPointsLive ?? side.totalPoints ?? 0) * 100) / 100,
+        projectedPoints: Math.round((side.totalProjectedPointsLive ?? side.totalProjectedPoints ?? 0) * 100) / 100,
+        winProbability: side.winProbability,
+        playersYetToPlay: starters.filter(p => p.gameState === 'pre').length,
+        playersInProgress: starters.filter(p => p.gameState === 'in').length,
+        starters,
+        bench: players.filter(p => p.lineupSlot === 'BENCH' || p.lineupSlot === 'IR')
+      };
+    };
+
+    return (data.schedule || [])
+      .filter((m: any) => m.matchupPeriodId === matchupPeriod)
+      .map((m: any) => ({
+        matchupPeriodId: matchupPeriod,
+        scoringPeriodId: scoringPeriod,
+        home: toTeam(m.home),
+        away: m.away ? toTeam(m.away) : undefined
+      }));
   }
 
   async getMatchups(leagueId: string, week: number) {

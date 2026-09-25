@@ -135,6 +135,16 @@ router.get('/league/:leagueId/rosters', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/league/:leagueId/live', async (req: Request, res: Response) => {
+  try {
+    const { leagueId } = req.params;
+    const data = await espnApi.getLiveScoreboard(leagueId);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/league/:leagueId/matchups/:week', async (req: Request, res: Response) => {
   try {
     const { leagueId, week } = req.params;
